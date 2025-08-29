@@ -34,3 +34,74 @@ def allowed_file(filename):
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'model_loaded': model is not None})
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    if model is None:
+        return jsonify({'error': 'Modelo não carregado'}), 500
+    if 'file' not in request.files:
+        return jsonify({'error': 'Nenhum arquivo enviado'}), 400
+    
+    file = request.files['file']
+    
+    if file.filename == '':
+        return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
+    
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        try:
+            # Ler o arquivo CSV
+            df = pd.read_csv(filepath)
+            
+            # Verificar se as colunas necessárias estão presentes
+            required_columns = (preprocessing_info['numeric_features'] + 
+                               preprocessing_info['categorical_features'])
+            
+            missing_columns = set(required_columns) - set(df.columns)
+            if missing_columns:
+                return jsonify({
+                    'error': f'Colunas faltantes: {list(missing_columns)}',
+                    'required_columns': required_columns
+                }), 400
+            
+            # Fazer as predições
+            predictions = model.predict(df)
+            probabilities = model.predict_proba(df)[:, 1]
+            
+            # Criar resposta
+            results = []
+            for i, (pred, prob) in enumerate(zip(predictions, probabilities)):
+                results.append({
+                    'id': i,
+                    'prediction': int(pred),
+                    'probability': float(prob),
+                    'confidence': 'high' if prob > 0.7 or prob < 0.3 else 'medium'
+                })
+            
+            # Estatísticas das predições
+            stats = {
+                'total_predictions': len(predictions),
+                'positive_predictions': int(np.sum(predictions)),
+                'negative_predictions': int(len(predictions) - np.sum(predictions)),
+                'average_probability': float(np.mean(probabilities))
+            }
+            
+            return jsonify({
+                'predictions': results,
+                'statistics': stats,
+                'success': True
+            })
+            
+        except Exception as e:
+            return jsonify({'error': f'Erro ao processar arquivo: {str(e)}'}), 500
+        
+        finally:
+            # Limpar arquivo temporário
+            if os.path.exists(filepath):
+                os.remove(filepath)
+    
+    else:
+        return jsonify({'error': 'Tipo de arquivo não permitido'}), 400

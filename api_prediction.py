@@ -53,10 +53,8 @@ def predict():
         file.save(filepath)
         
         try:
-            # Ler o arquivo CSV
             df = pd.read_csv(filepath)
             
-            # Verificar se as colunas necessárias estão presentes
             required_columns = (preprocessing_info['numeric_features'] + 
                                preprocessing_info['categorical_features'])
             
@@ -67,11 +65,9 @@ def predict():
                     'required_columns': required_columns
                 }), 400
             
-            # Fazer as predições
             predictions = model.predict(df)
             probabilities = model.predict_proba(df)[:, 1]
             
-            # Criar resposta
             results = []
             for i, (pred, prob) in enumerate(zip(predictions, probabilities)):
                 results.append({
@@ -81,7 +77,6 @@ def predict():
                     'confidence': 'high' if prob > 0.7 or prob < 0.3 else 'medium'
                 })
             
-            # Estatísticas das predições
             stats = {
                 'total_predictions': len(predictions),
                 'positive_predictions': int(np.sum(predictions)),
@@ -99,9 +94,35 @@ def predict():
             return jsonify({'error': f'Erro ao processar arquivo: {str(e)}'}), 500
         
         finally:
-            # Limpar arquivo temporário
             if os.path.exists(filepath):
                 os.remove(filepath)
     
     else:
         return jsonify({'error': 'Tipo de arquivo não permitido'}), 400
+    
+@app.route('/predict_single', methods=['POST'])
+def predict_single():
+    if model is None:
+        return jsonify({'error': 'Modelo não carregado'}), 500
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'Dados não fornecidos'}), 400
+        
+        df = pd.DataFrame([data])
+        prediction = model.predict(df)[0]
+        probability = model.predict_proba(df)[0][1]
+        
+        return jsonify({
+            'prediction': int(prediction),
+            'probability': float(probability),
+            'confidence': 'high' if probability > 0.7 or probability < 0.3 else 'medium'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Erro na predição: {str(e)}'}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
